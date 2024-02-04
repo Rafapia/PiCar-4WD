@@ -15,11 +15,13 @@
 import argparse
 import sys
 import time
+import numpy as np
 
 import cv2
 from tflite_support.task import core
 from tflite_support.task import processor
 from tflite_support.task import vision
+from picamera2 import Picamera2
 import utils
 
 
@@ -41,9 +43,12 @@ def run(model: str, camera_id: int, width: int, height: int, num_threads: int,
   start_time = time.time()
 
   # Start capturing video input from the camera
-  cap = cv2.VideoCapture(camera_id, apiPreference=cv2.CAP_V4L2)
-  cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-  cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+  # cap = cv2.VideoCapture(camera_id, apiPreference=cv2.CAP_V4L2)
+  # cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+  # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+  cap = Picamera2()
+  # cap.start()
+  print("Creating camera")
 
   # Visualization parameters
   row_size = 20  # pixels
@@ -62,22 +67,22 @@ def run(model: str, camera_id: int, width: int, height: int, num_threads: int,
       base_options=base_options, detection_options=detection_options)
   detector = vision.ObjectDetector.create_from_options(options)
 
+  print("Opening camera")
+
   # Continuously capture images from the camera and run inference
-  while cap.isOpened():
-    success, image = cap.read()
-    if not success:
-      sys.exit(
-          'ERROR: Unable to read from webcam. Please verify your webcam settings.'
-      )
+  cap.start()
+  while True:
+    image = cap.capture_array()
 
     counter += 1
-    image = cv2.flip(image, 1)
+    image = cv2.rotate(image, cv2.ROTATE_180)
 
     # Convert the image from BGR to RGB as required by the TFLite model.
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # rgb_image = image
 
     # Create a TensorImage object from the RGB image.
-    input_tensor = vision.TensorImage.create_from_array(rgb_image)
+    input_tensor = vision.TensorImage.create_from_array(image)
 
     # Run object detection estimation using the model.
     detection_result = detector.detect(input_tensor)
@@ -93,6 +98,7 @@ def run(model: str, camera_id: int, width: int, height: int, num_threads: int,
 
     # Show the FPS
     fps_text = 'FPS = {:.1f}'.format(fps)
+    print(fps_text)
     text_location = (left_margin, row_size)
     cv2.putText(image, fps_text, text_location, cv2.FONT_HERSHEY_PLAIN,
                 font_size, text_color, font_thickness)
@@ -102,7 +108,8 @@ def run(model: str, camera_id: int, width: int, height: int, num_threads: int,
       break
     cv2.imshow('object_detector', image)
 
-  cap.release()
+  # cap.release()
+  cap.close()
   cv2.destroyAllWindows()
 
 
@@ -113,7 +120,7 @@ def main():
       '--model',
       help='Path of the object detection model.',
       required=False,
-      default='efficientdet_lite0.tflite')
+      default='/home/fzassumpcao/picar-4wd/lab/object_detection/efficientdet_lite0.tflite')
   parser.add_argument(
       '--cameraId', help='Id of camera.', required=False, type=int, default=0)
   parser.add_argument(
@@ -141,6 +148,8 @@ def main():
       required=False,
       default=False)
   args = parser.parse_args()
+
+  print("Main")
 
   run(args.model, int(args.cameraId), args.frameWidth, args.frameHeight,
       int(args.numThreads), bool(args.enableEdgeTPU))

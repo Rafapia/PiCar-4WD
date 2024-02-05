@@ -122,7 +122,7 @@ def create_graph_from_2d_array_with_obstacles(array):
     rows, cols = array.shape
     G = nx.grid_2d_graph(rows, cols)
     # Identify and remove obstacles directly within this function
-    obstacles = [(i, j) for i in range(rows) for j in range(cols) if array[i, j] > 1]
+    obstacles = [(i, j) for i in range(rows) for j in range(cols) if array[i, j] > 2]
     G.remove_nodes_from(obstacles)
     return G
 
@@ -176,48 +176,10 @@ def adjust_orientation_and_move(next_position):
     drive_forward(1)
     time.sleep(1)
 
-# ---------- Main logic functions ----------
-def drive(goal):
-    global cur_map, position, orientation
-    # G = create_graph_from_2d_array_with_obstacles(cur_map)
-    fc.get_distance_at(0)
-    time.sleep(0.5)
-    it = 0
-    while position != goal:
-        try:
-            angles, dists = scan()
-            update_map(angles, dists)
-            G = create_graph_from_2d_array_with_obstacles(cur_map)
-            path = nx.astar_path(G, position, goal, heuristic)
-            print("Current Path:", path[:5])
-            
-            for i in range(1, 5):
-                # Move one step along the path
-                next_position = path[i]  # Next step in the path
-                print("Current: ", position)
-                print("Next: ", next_position)
-                adjust_orientation_and_move(next_position)
-                print("Moved to:", next_position)
-
-            it += 1
-            if it == 6:
-                break
-        except nx.NetworkXNoPath:
-            print("No path found to the goal from current position.")
-            return
-    print("Goal reached.")
-
-
+# ---------- Main logic function ----------
 def run(model: str, num_threads: int) -> None:
-    """Continuously run inference on images acquired from the camera.
-
-    Args:
-        model: Name of the TFLite object detection model.
-        camera_id: The camera id to be passed to OpenCV.
-        width: The width of the frame captured from the camera.
-        height: The height of the frame captured from the camera.
-        num_threads: The number of CPU threads to run the model.
-        enable_edgetpu: True/False whether the model is a EdgeTPU model.
+    """
+        Continuously run inference on images acquired from the camera.
     """
     global cur_map, position, orientation
 
@@ -252,11 +214,8 @@ def run(model: str, num_threads: int) -> None:
     it = 0
     while position != goal:
         try:
-            angles, dists = scan()
-            update_map(angles, dists)
-            G = create_graph_from_2d_array_with_obstacles(cur_map)
-            path = nx.astar_path(G, position, goal, heuristic)
-            print("Current Path:", path[:5])
+            pedestrain_wait = False
+            fc.get_distance_at(0)
 
             # Check for stop sign or pedestrians
             image = cap.capture_array()
@@ -264,21 +223,38 @@ def run(model: str, num_threads: int) -> None:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             input_tensor = vision.TensorImage.create_from_array(image)
             detection_result = detector.detect(input_tensor)
-            if True:
-                print(detection_result)
+            print(detection_result)
 
+            # If some object was detected
+            for detected_object in detection_result.detections:
+                object_categories = [category.category_name for category in detected_object.categories]
+                if "person" in object_categories:
+                    print("Stopping for PEDESTRIAN")
+                    pedestrain_wait = True
+                    time.sleep(1)
+                elif "stop sign" in object_categories:
+                        print("Stopping for STOP SIGN")
+                        time.sleep(5)
+
+            if not pedestrain_wait:
+                angles, dists = scan()
+                update_map(angles, dists)
+                G = create_graph_from_2d_array_with_obstacles(cur_map)
+                path = nx.astar_path(G, position, goal, heuristic)
+                print("Current Path:", path[:5])
             
-            for i in range(1, 5):
-                # Move one step along the path
-                next_position = path[i]  # Next step in the path
-                print("Current: ", position)
-                print("Next: ", next_position)
-                adjust_orientation_and_move(next_position)
-                print("Moved to:", next_position)
+                for i in range(1, 5):
+                    # Move one step along the path
+                    next_position = path[i]  # Next step in the path
+                    print("Current: ", position)
+                    print("Next: ", next_position)
+                    adjust_orientation_and_move(next_position)
+                    print("Moved to:", next_position)
 
-            it += 1
-            if it == 6:
-                break
+                it += 1
+                if it == 6:
+                    break
+
         except nx.NetworkXNoPath:
             print("No path found to the goal from current position.")
             return
@@ -286,6 +262,7 @@ def run(model: str, num_threads: int) -> None:
     cap.close()
     cv2.destroyAllWindows()
 
+    print(cur_map)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -304,7 +281,6 @@ def main():
     args = parser.parse_args()
 
     run(args.model, int(args.numThreads))
-
 
 if __name__ == '__main__':
     main()
